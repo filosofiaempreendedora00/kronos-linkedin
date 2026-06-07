@@ -583,6 +583,7 @@ const colIndex = id => COLUMNS.findIndex(c => c.id === id);
 /* ---------- Estado ---------- */
 // cada card: {id, title, bucket:'icp'|'marca', cta:bool, signature, principle, text, comment, column}
 let state = Store.load() || { cards: seedCards() };
+runMigrations(); // injeta cards de referência em boards já salvos
 
 // id incremental simples e sem dependência de Date/random para o seed
 function uid() {
@@ -616,7 +617,38 @@ function seedCards() {
       text: 'Antes de responder qualquer lead, passe por estas 4 perguntas…',
       comment: '', column: 'aprovado'
     },
+    inspiracaoLadsQueiroz(),
   ];
+}
+
+/* Card de inspiração — ref. Lads Queiroz.
+   Definido à parte para também ser injetado em boards já salvos (ver migrações). */
+function inspiracaoLadsQueiroz() {
+  return {
+    id: 'ref_lads_matematica',
+    title: 'INSPIRAÇÃO · "Existe uma matemática estranha no mundo profissional"',
+    bucket: 'icp', cta: false, signature: 'outro',
+    principle: 'Abertura com paradoxo/curiosity gap ("matemática estranha") que promete um insight contraintuitivo sobre carreira — segura a leitura antes de entregar a virada. Ref.: Lads Queiroz.',
+    text: 'Referência de estilo (não é post final). Link: https://www.linkedin.com/posts/ladsqueiroz_existe-uma-matem%C3%A1tica-estranha-no-mundo-profissional-activity-7467939258998120448-flJa',
+    comment: '', column: 'pauta'
+  };
+}
+
+/* ---------- Migrações leves ----------
+   Injeta cards de referência uma única vez em boards já persistidos,
+   sem duplicar caso o usuário já os tenha (ou já tenha apagado e recriado). */
+function runMigrations() {
+  const injetar = [inspiracaoLadsQueiroz];
+  injetar.forEach(fn => {
+    const card = fn();
+    const jaExiste = state.cards.some(c => c.id === card.id)
+      || (state.injected && state.injected.includes(card.id));
+    if (!jaExiste) {
+      state.cards.push(card);
+      state.injected = state.injected || [];
+      state.injected.push(card.id); // marca como injetado p/ respeitar exclusão futura
+    }
+  });
 }
 
 /* ---------- Persistência ---------- */
