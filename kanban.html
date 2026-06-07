@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kronos · Máquina de Conteúdo LinkedIn</title>
+<style>
+  /* ============================================================
+     KRONOS — Máquina de Conteúdo LinkedIn
+     Kanban interativo, single-file, sem dependências externas.
+
+     Estrutura do código:
+       1. Tokens de design (CSS custom properties)
+       2. Layout: header / painel de regras / board / colunas
+       3. Cards
+       4. Modal de edição
+       5. Lógica JS: estado, storage, render, drag&drop, regras
+     ============================================================ */
+
+  /* ---------- 1. Tokens de design — identidade Kronos ---------- */
+  :root {
+    --bg:        #1a1a1c;   /* charcoal de fundo */
+    --bg-raised: #222225;   /* colunas */
+    --bg-card:   #2a2a2e;   /* cards */
+    --bg-card-2: #303035;   /* card hover */
+    --line:      #38383d;   /* divisórias / bordas */
+    --line-soft: #2f2f34;
+    --txt:       #e6e4df;   /* texto claro, levemente quente */
+    --txt-dim:   #9a978f;   /* texto secundário */
+    --txt-faint: #6b6862;   /* labels, metadados */
+    --accent:    #b08d57;   /* único tom de destaque: bronze seco */
+    --accent-dim:#7a6440;
+    --alert:     #b5564e;   /* alerta sóbrio, não berrante */
+    --ok:        #5f7a5a;   /* verde dessaturado */
+    --radius:    6px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- 2. Header ---------- */
+  header {
+    padding: 22px 28px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .brand .sub {
+    font-size: 12px;
+    color: var(--txt-faint);
+    letter-spacing: 0.3px;
+  }
+
+  /* ---------- Painel de regras editoriais ---------- */
+  .rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+  }
+  .rule {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 200px;
+  }
+  .rule .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--txt-faint);
+  }
+  .rule .value {
+    font-size: 13px;
+    color: var(--txt-dim);
+  }
+  .rule .value strong { color: var(--txt); font-weight: 600; }
+
+  /* contador de CTA */
+  .cta-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .cta-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 11px;
+    font-weight: 600;
+    font-size: 12px;
+    background: #2f2f34;
+    color: var(--txt);
+    border: 1px solid var(--line);
+  }
+  .cta-pill.alert {
+    background: rgba(181, 86, 78, 0.18);
+    color: #e0a39d;
+    border-color: var(--alert);
+  }
+  .cta-warn {
+    color: #e0a39d;
+    font-size: 12px;
+  }
+
+  /* barra de balanço de bucket */
+  .balance-bar {
+    width: 220px;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    display: flex;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .balance-bar .icp  { background: var(--accent); }
+  .balance-bar .marca{ background: var(--txt-faint); }
+  .balance-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--txt-dim);
+  }
+  .balance-legend .dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .dot.icp  { background: var(--accent); }
+  .dot.marca{ background: var(--txt-faint); }
+
+  /* ---------- Botões ---------- */
+  button {
+    font-family: var(--font);
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--bg-card);
+    color: var(--txt);
+    border-radius: var(--radius);
+    padding: 7px 12px;
+    font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover { background: var(--bg-card-2); border-color: #46464c; }
+  button.primary {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #f3ece0;
+  }
+  button.primary:hover { background: var(--accent); }
+  button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--txt-dim);
+    padding: 4px 8px;
+  }
+  button.ghost:hover { background: var(--bg-card); color: var(--txt); }
+  button.danger:hover { border-color: var(--alert); color: #e0a39d; }
+
+  /* ---------- 3. Board / colunas ---------- */
+  .board {
+    display: flex;
+    gap: 14px;
+    padding: 20px 28px 40px;
+    overflow-x: auto;
+    min-height: calc(100vh - 220px);
+    align-items: flex-start;
+  }
+  .column {
+    flex: 1 1 0;
+    min-width: 240px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+  }
+  .column-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .column-head .name {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: var(--txt-dim);
+    font-weight: 600;
+  }
+  .column-head .count {
+    font-size: 12px;
+    color: var(--txt-faint);
+    background: var(--bg-card);
+    border-radius: 10px;
+    padding: 1px 8px;
+  }
+  .column-body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    min-height: 60px;
+  }
+  /* destaque ao arrastar por cima */
+  .column-body.drag-over {
+    outline: 1px dashed var(--accent-dim);
+    outline-offset: -4px;
+    background: rgba(176, 141, 87, 0.04);
+  }
+  .col-add {
+    margin: 0 10px 10px;
+    border-style: dashed;
+    color: var(--txt-dim);
+    background: transparent;
+  }
+
+  /* ---------- Cards ---------- */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px;
+    cursor: grab;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .card:hover { background: var(--bg-card-2); border-color: #46464c; }
+  .card.dragging { opacity: 0.45; cursor: grabbing; }
+
+  .card .title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txt);
+    margin-bottom: 8px;
+    line-height: 1.35;
+  }
+  .card .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .tag {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    color: var(--txt-dim);
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+  }
+  .tag.icp    { border-color: var(--accent-dim); color: var(--accent); }
+  .tag.marca  { border-color: var(--line); color: var(--txt-dim); }
+  .tag.cta    { border-color: var(--accent); color: #e8d4ad; }
+  .tag.sig    { border-color: var(--line); color: var(--txt-dim); }
+
+  .card .principio {
+    font-size: 12px;
+    color: var(--txt-faint);
+    font-style: italic;
+    margin-bottom: 8px;
+    border-left: 2px solid var(--line);
+    padding-left: 8px;
+  }
+  .card .excerpt {
+    font-size: 12.5px;
+    color: var(--txt-dim);
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .card .comment {
+    font-size: 12px;
+    color: #d8b6a8;
+    background: rgba(181, 86, 78, 0.10);
+    border: 1px solid rgba(181, 86, 78, 0.30);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+  }
+  .card .comment .ctitle {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--alert);
+    margin-bottom: 2px;
+  }
+
+  .card .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 8px;
+    margin-top: 2px;
+  }
+  .card .actions .move {
+    font-size: 15px;
+    line-height: 1;
+    padding: 3px 8px;
+  }
+  .card .actions .spacer { flex: 1; }
+
+  /* ---------- 4. Modal ---------- */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    overflow-y: auto;
+    z-index: 50;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    width: 100%;
+    max-width: 600px;
+    padding: 22px 24px 24px;
+  }
+  .modal h2 {
+    margin: 0 0 18px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--txt-faint);
+    margin-bottom: 6px;
+  }
+  .field input[type="text"],
+  .field textarea,
+  .field select {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--txt);
+    padding: 9px 11px;
+    font-size: 13px;
+    font-family: var(--font);
+  }
+  .field textarea { resize: vertical; min-height: 90px; line-height: 1.55; }
+  .field input:focus,
+  .field textarea:focus,
+  .field select:focus {
+    outline: none;
+    border-color: var(--accent-dim);
+  }
+  .field-row {
+    display: flex;
+    gap: 14px;
+  }
+  .field-row .field { flex: 1; }
+
+  /* toggle CTA sim/não */
+  .toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    width: fit-content;
+  }
+  .toggle button {
+    border: none;
+    border-radius: 0;
+    background: var(--bg-card);
+    color: var(--txt-dim);
+    padding: 8px 18px;
+  }
+  .toggle button.on {
+    background: var(--accent-dim);
+    color: #f3ece0;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 22px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 18px;
+  }
+  .modal-actions .spacer { flex: 1; }
+
+  .hint {
+    font-size: 11px;
+    color: var(--txt-faint);
+    margin-top: 6px;
+  }
+  .empty {
+    color: var(--txt-faint);
+    font-size: 12px;
+    text-align: center;
+    padding: 16px 8px;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ===================== HEADER + PAINEL DE REGRAS ===================== -->
+  <header>
+    <div class="brand">
+      <h1>KRONOS</h1>
+      <span class="sub">Máquina de Conteúdo · LinkedIn</span>
+    </div>
+
+    <!-- Painel de regras editoriais, sempre visível -->
+    <div class="rules">
+      <div class="rule">
+        <span class="label">CTA da semana</span>
+        <div class="cta-count">
+          <span id="ctaPill" class="cta-pill">0</span>
+          <span class="value">em Aprovado + Publicar</span>
+        </div>
+        <span id="ctaWarn" class="cta-warn" style="display:none;">
+          Acima do limite — regra: no máximo 1 CTA por semana.
+        </span>
+      </div>
+
+      <div class="rule">
+        <span class="label">Balanço de bucket (aprovados)</span>
+        <div class="balance-bar">
+          <div class="icp"   id="barIcp"   style="width:80%"></div>
+          <div class="marca" id="barMarca" style="width:20%"></div>
+        </div>
+        <div class="balance-legend">
+          <span><span class="dot icp"></span><span id="legIcp">ICP 0%</span></span>
+          <span><span class="dot marca"></span><span id="legMarca">Marca 0%</span></span>
+        </div>
+      </div>
+
+      <div class="rule" style="justify-content:flex-end;">
+        <span class="label">Meta de mistura</span>
+        <span class="value"><strong>80%</strong> ICP · <strong>20%</strong> Marca</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== BOARD ===================== -->
+  <div class="board" id="board"><!-- colunas injetadas via JS --></div>
+
+  <!-- ===================== MODAL DE EDIÇÃO ===================== -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h2 id="modalTitle">Novo card</h2>
+
+      <div class="field">
+        <label>Título da pauta</label>
+        <input type="text" id="f_title" placeholder="Ex.: O maior erro ao terceirizar conteúdo" />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Bucket</label>
+          <select id="f_bucket">
+            <option value="icp">80% ICP</option>
+            <option value="marca">20% Marca</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Assinatura</label>
+          <select id="f_signature">
+            <option>ElIAs</option>
+            <option>Hilário</option>
+            <option>MarIAna</option>
+            <option>outro</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>CTA da semana</label>
+          <div class="toggle" id="ctaToggle">
+            <button type="button" data-cta="false" class="on">Não</button>
+            <button type="button" data-cta="true">Sim</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Princípio de origem — o que fez a referência funcionar</label>
+        <input type="text" id="f_principle" placeholder="Ex.: abertura com erro concreto + virada contraintuitiva" />
+      </div>
+
+      <div class="field">
+        <label>Texto (o post escrito)</label>
+        <textarea id="f_text" placeholder="Escreva o post aqui…"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Comentário do humano (ao devolver)</label>
+        <textarea id="f_comment" placeholder="Preenchido quando o card é devolvido para revisão." style="min-height:60px;"></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="danger" id="btnDelete" style="display:none;">Excluir</button>
+        <span class="spacer"></span>
+        <button id="btnCancel">Cancelar</button>
+        <button class="primary" id="btnSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ============================================================
+   5. LÓGICA
+   ============================================================ */
+
+/* ---------- Camada de storage ----------
+   Usa localStorage por padrão. Se este arquivo for renderizado como
+   artefato do Claude (onde localStorage não existe), troque as duas
+   funções abaixo por window.storage.getItem/setItem. */
+const Store = {
+  KEY: 'kronos_kanban_v1',
+  load() {
+    try {
+      const raw = localStorage.getItem(this.KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  },
+  save(data) {
+    try { localStorage.setItem(this.KEY, JSON.stringify(data)); }
+    catch (e) { console.warn('Falha ao salvar:', e); }
+  }
+};
+
+/* ---------- Definição das colunas (ordem importa) ---------- */
+const COLUMNS = [
+  { id: 'pauta',     name: 'Pauta' },
+  { id: 'rascunho',  name: 'Rascunho' },
+  { id: 'aprovacao', name: 'Em aprovação' },
+  { id: 'aprovado',  name: 'Aprovado' },
+  { id: 'publicar',  name: 'Publicar' },
+];
+const colIndex = id => COLUMNS.findIndex(c => c.id === id);
+
+/* ---------- Estado ---------- */
+// cada card: {id, title, bucket:'icp'|'marca', cta:bool, signature, principle, text, comment, column}
+let state = Store.load() || { cards: seedCards() };
+
+// id incremental simples e sem dependência de Date/random para o seed
+function uid() {
+  return 'c' + (Math.floor(performance.now() * 1000) % 1e9) + '_' + (state.cards.length);
+}
+
+/* Conteúdo inicial de exemplo, para o board não nascer vazio.
+   Pode apagar à vontade — some assim que você editar de verdade. */
+function seedCards() {
+  return [
+    {
+      id: 'seed1',
+      title: 'O maior erro ao terceirizar conteúdo no LinkedIn',
+      bucket: 'icp', cta: false, signature: 'ElIAs',
+      principle: 'Abertura com erro concreto + virada contraintuitiva (ref. Bruno Amaral).',
+      text: 'A maioria terceiriza a escrita e mantém a estratégia. O certo é o contrário…',
+      comment: '', column: 'rascunho'
+    },
+    {
+      id: 'seed2',
+      title: 'Bastidores: como a Kronos define pauta da semana',
+      bucket: 'marca', cta: false, signature: 'MarIAna',
+      principle: 'Transparência de processo gera autoridade silenciosa.',
+      text: '', comment: '', column: 'pauta'
+    },
+    {
+      id: 'seed3',
+      title: 'Checklist de qualificação de lead em 4 perguntas',
+      bucket: 'icp', cta: true, signature: 'Hilário',
+      principle: 'Ativo prático e salvável; CTA natural para conversa.',
+      text: 'Antes de responder qualquer lead, passe por estas 4 perguntas…',
+      comment: '', column: 'aprovado'
+    },
+  ];
+}
+
+/* ---------- Persistência ---------- */
+function persist() { Store.save(state); }
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+const board = document.getElementById('board');
+
+function render() {
+  board.innerHTML = '';
+
+  COLUMNS.forEach(col => {
+    const cards = state.cards.filter(c => c.column === col.id);
+
+    const colEl = document.createElement('div');
+    colEl.className = 'column';
+    colEl.innerHTML = `
+      <div class="column-head">
+        <span class="name">${col.name}</span>
+        <span class="count">${cards.length}</span>
+      </div>
+      <div class="column-body" data-col="${col.id}"></div>
+      <button class="col-add" data-addcol="${col.id}">+ Adicionar card</button>
+    `;
+    board.appendChild(colEl);
+
+    const body = colEl.querySelector('.column-body');
+
+    // Drag & drop: a coluna é o alvo de soltura
+    body.addEventListener('dragover', e => { e.preventDefault(); body.classList.add('drag-over'); });
+    body.addEventListener('dragleave', () => body.classList.remove('drag-over'));
+    body.addEventListener('drop', e => {
+      e.preventDefault();
+      body.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain');
+      moveCardTo(id, col.id);
+    });
+
+    if (cards.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'vazio';
+      body.appendChild(empty);
+    } else {
+      cards.forEach(card => body.appendChild(renderCard(card)));
+    }
+  });
+
+  updateRules();
+  persist();
+}
+
+/* Monta um card individual */
+function renderCard(card) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.draggable = true;
+  el.dataset.id = card.id;
+
+  const idx = colIndex(card.column);
+  const bucketTag = card.bucket === 'icp'
+    ? '<span class="tag icp">80% ICP</span>'
+    : '<span class="tag marca">20% Marca</span>';
+  const ctaTag = card.cta ? '<span class="tag cta">CTA</span>' : '';
+  const sigTag = card.signature ? `<span class="tag sig">${esc(card.signature)}</span>` : '';
+
+  el.innerHTML = `
+    <div class="title">${esc(card.title) || '<em>sem título</em>'}</div>
+    <div class="tags">${bucketTag}${ctaTag}${sigTag}</div>
+    ${card.principle ? `<div class="principio">${esc(card.principle)}</div>` : ''}
+    ${card.text ? `<div class="excerpt">${esc(card.text)}</div>` : ''}
+    ${card.comment ? `<div class="comment"><span class="ctitle">Comentário do humano</span>${esc(card.comment)}</div>` : ''}
+    <div class="actions">
+      <button class="ghost move" title="Voltar coluna" data-back="${card.id}" ${idx === 0 ? 'disabled' : ''}>‹</button>
+      <button class="ghost move" title="Avançar coluna" data-fwd="${card.id}" ${idx === COLUMNS.length - 1 ? 'disabled' : ''}>›</button>
+      <span class="spacer"></span>
+      ${card.column === 'aprovacao' ? `<button class="ghost" data-approve="${card.id}">Aprovar</button>` : ''}
+      ${(card.column === 'aprovacao' || card.column === 'aprovado') ? `<button class="ghost" data-return="${card.id}">Devolver</button>` : ''}
+      <button class="ghost" data-edit="${card.id}">Editar</button>
+    </div>
+  `;
+
+  // Drag handlers do card
+  el.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', card.id);
+    e.dataTransfer.effectAllowed = 'move';
+    el.classList.add('dragging');
+  });
+  el.addEventListener('dragend', () => el.classList.remove('dragging'));
+
+  // Abrir editor ao clicar no corpo do card (ignorando botões)
+  el.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    openModal(card.id);
+  });
+
+  return el;
+}
+
+/* Escapa HTML para evitar quebra de layout / injeção */
+function esc(s) {
+  return (s || '').replace(/[&<>"']/g, m =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+
+/* ============================================================
+   AÇÕES SOBRE CARDS
+   ============================================================ */
+function getCard(id) { return state.cards.find(c => c.id === id); }
+
+function moveCardTo(id, colId) {
+  const card = getCard(id);
+  if (!card || card.column === colId) return;
+
+  // Regra: devolver para Rascunho exige comentário.
+  // Se o destino for "rascunho" e vier de aprovação/aprovado, trata como "devolver".
+  if (colId === 'rascunho' && (card.column === 'aprovacao' || card.column === 'aprovado')) {
+    return returnCard(id);
+  }
+  card.column = colId;
+  render();
+}
+
+function stepCard(id, dir) {
+  const card = getCard(id);
+  if (!card) return;
+  const i = colIndex(card.column) + dir;
+  if (i < 0 || i >= COLUMNS.length) return;
+  moveCardTo(id, COLUMNS[i].id);
+}
+
+function approveCard(id) {
+  const card = getCard(id);
+  if (!card) return;
+  card.column = 'aprovado';
+  render();
+}
+
+/* Devolver: volta para Rascunho e EXIGE comentário do humano */
+function returnCard(id) {
+  const card = getCard(id);
+  if (!card) return;
+  const msg = prompt('Devolver para Rascunho.\nComentário do humano (obrigatório):', card.comment || '');
+  if (msg === null) return;            // cancelou
+  if (!msg.trim()) {                   // vazio não vale
+    alert('É preciso escrever um comentário para devolver.');
+    return;
+  }
+  card.comment = msg.trim();
+  card.column = 'rascunho';
+  render();
+}
+
+function deleteCard(id) {
+  state.cards = state.cards.filter(c => c.id !== id);
+  render();
+}
+
+/* ============================================================
+   MODAL DE EDIÇÃO / CRIAÇÃO
+   ============================================================ */
+const modal = document.getElementById('modalBackdrop');
+let editingId = null;      // null = criando novo
+let newColumn = 'pauta';   // coluna alvo ao criar
+let ctaValue = false;      // estado do toggle CTA no modal
+
+const els = {
+  title:     document.getElementById('f_title'),
+  bucket:    document.getElementById('f_bucket'),
+  signature: document.getElementById('f_signature'),
+  principle: document.getElementById('f_principle'),
+  text:      document.getElementById('f_text'),
+  comment:   document.getElementById('f_comment'),
+  modalTitle:document.getElementById('modalTitle'),
+  btnDelete: document.getElementById('btnDelete'),
+};
+
+// Toggle CTA dentro do modal
+document.getElementById('ctaToggle').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-cta]');
+  if (!btn) return;
+  ctaValue = btn.dataset.cta === 'true';
+  document.querySelectorAll('#ctaToggle button').forEach(b =>
+    b.classList.toggle('on', b.dataset.cta === String(ctaValue)));
+});
+
+function openModal(id, column) {
+  editingId = id || null;
+
+  if (editingId) {
+    const c = getCard(editingId);
+    els.modalTitle.textContent = 'Editar card';
+    els.title.value     = c.title || '';
+    els.bucket.value    = c.bucket || 'icp';
+    els.signature.value = c.signature || 'ElIAs';
+    els.principle.value = c.principle || '';
+    els.text.value      = c.text || '';
+    els.comment.value   = c.comment || '';
+    ctaValue            = !!c.cta;
+    els.btnDelete.style.display = '';
+  } else {
+    newColumn = column || 'pauta';
+    els.modalTitle.textContent = 'Novo card';
+    els.title.value = '';
+    els.bucket.value = 'icp';
+    els.signature.value = 'ElIAs';
+    els.principle.value = '';
+    els.text.value = '';
+    els.comment.value = '';
+    ctaValue = false;
+    els.btnDelete.style.display = 'none';
+  }
+
+  // sincroniza toggle CTA com o estado
+  document.querySelectorAll('#ctaToggle button').forEach(b =>
+    b.classList.toggle('on', b.dataset.cta === String(ctaValue)));
+
+  modal.classList.add('open');
+  els.title.focus();
+}
+
+function closeModal() {
+  modal.classList.remove('open');
+  editingId = null;
+}
+
+function saveModal() {
+  const data = {
+    title:     els.title.value.trim(),
+    bucket:    els.bucket.value,
+    signature: els.signature.value,
+    principle: els.principle.value.trim(),
+    text:      els.text.value.trim(),
+    comment:   els.comment.value.trim(),
+    cta:       ctaValue,
+  };
+
+  if (editingId) {
+    Object.assign(getCard(editingId), data);
+  } else {
+    state.cards.push({ id: uid(), column: newColumn, ...data });
+  }
+  closeModal();
+  render();
+}
+
+/* ============================================================
+   PAINEL DE REGRAS — recalcula a cada render
+   ============================================================ */
+function updateRules() {
+  // 1) Contador de CTA em Aprovado + Publicar
+  const ctaCards = state.cards.filter(c =>
+    c.cta && (c.column === 'aprovado' || c.column === 'publicar'));
+  const n = ctaCards.length;
+
+  const pill = document.getElementById('ctaPill');
+  const warn = document.getElementById('ctaWarn');
+  pill.textContent = n;
+  pill.classList.toggle('alert', n > 1);
+  warn.style.display = n > 1 ? '' : 'none';
+
+  // 2) Balanço de bucket entre os aprovados (Aprovado + Publicar)
+  const approved = state.cards.filter(c =>
+    c.column === 'aprovado' || c.column === 'publicar');
+  const total = approved.length;
+  const icp = approved.filter(c => c.bucket === 'icp').length;
+  const marca = total - icp;
+
+  const pIcp   = total ? Math.round(icp / total * 100) : 0;
+  const pMarca = total ? 100 - pIcp : 0;
+
+  document.getElementById('barIcp').style.width   = (total ? pIcp : 50) + '%';
+  document.getElementById('barMarca').style.width = (total ? pMarca : 50) + '%';
+  document.getElementById('legIcp').textContent   = `ICP ${pIcp}% (${icp})`;
+  document.getElementById('legMarca').textContent = `Marca ${pMarca}% (${marca})`;
+}
+
+/* ============================================================
+   EVENTOS GLOBAIS (delegação)
+   ============================================================ */
+// Cliques no board (botões dos cards + adicionar por coluna)
+board.addEventListener('click', e => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.addcol)  return openModal(null, t.dataset.addcol);
+  if (t.dataset.edit)    return openModal(t.dataset.edit);
+  if (t.dataset.fwd)     return stepCard(t.dataset.fwd, +1);
+  if (t.dataset.back)    return stepCard(t.dataset.back, -1);
+  if (t.dataset.approve) return approveCard(t.dataset.approve);
+  if (t.dataset.return)  return returnCard(t.dataset.return);
+});
+
+// Botões do modal
+document.getElementById('btnSave').addEventListener('click', saveModal);
+document.getElementById('btnCancel').addEventListener('click', closeModal);
+document.getElementById('btnDelete').addEventListener('click', () => {
+  if (editingId && confirm('Excluir este card?')) { deleteCard(editingId); closeModal(); }
+});
+// Fechar modal clicando fora ou com Esc
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+/* ---------- Inicialização ---------- */
+render();
+</script>
+</body>
+</html>
